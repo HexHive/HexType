@@ -1,0 +1,26 @@
+#LLVM
+build/*
+clang
+compiler-rt
+llvm
+llvm-passes/build/*
+
+# Byte compiled python modules.
+*.pyc
+
+*.out
+# vim swap files
+.*.sw?
+
+# gedit tmp files
+*~
+
+# Explicit files to ignore (only matches one).
+cscope.files
+cscope.out
+
+#tag
+tags
+
+#log
+*.log
