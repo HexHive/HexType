@@ -37,6 +37,10 @@
 #include "llvm/IR/ValueHandle.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Transforms/Utils/SanitizerStats.h"
+#include "llvm/Transforms/Utils/HexTypeUtil.h"
+
+extern llvm::cl::opt<bool> ClHandleReinterpretCast;
+#define MAXLEN 10000
 
 namespace llvm {
 class BasicBlock;
@@ -170,6 +174,11 @@ public:
   /// AllocaInsertPoint - This is an instruction in the entry block before which
   /// we prefer to insert allocas.
   llvm::AssertingVH<llvm::Instruction> AllocaInsertPt;
+
+  llvm::HexTypeCommonUtil HexTypeUtil;
+  typedef std::set<uint64_t> HashSet;
+  std::map<uint64_t, HashSet*> TypeParentInfo;
+  std::map<uint64_t, HashSet*> TypePhantomInfo;
 
   /// \brief API for captured statement code generation.
   class CGCapturedStmtInfo {
@@ -1899,7 +1908,10 @@ public:
 
   llvm::Value *EmitLifetimeStart(uint64_t Size, llvm::Value *Addr);
   void EmitLifetimeEnd(llvm::Value *Size, llvm::Value *Addr);
-
+  void getTypeElement(const CXXRecordDecl *,
+                      llvm::Value *, uint64_t , char *);
+  void getTypeRelationInfo(const CXXRecordDecl *, const CXXRecordDecl *);
+  void insertTypeRelationInfo(uint64_t, uint64_t, std::map<uint64_t, HashSet*> &);
   llvm::Value *EmitCXXNewExpr(const CXXNewExpr *E);
   void EmitCXXDeleteExpr(const CXXDeleteExpr *E);
 
@@ -3048,6 +3060,21 @@ public:
                  StringRef CheckName, ArrayRef<llvm::Constant *> StaticArgs,
                  ArrayRef<llvm::Value *> DynamicArgs);
 
+  void HexEmitCheck(StringRef FunName, ArrayRef<llvm::Value *> DynamicArgs,
+                    llvm::Value *DstTyHashValue);
+
+  void EmitHexTypeCheckForCast(QualType T, llvm::Value *Derived,
+                               bool MayBeNull, CFITypeCheckKind TCK,
+                               SourceLocation Loc);
+
+  void EmitHexTypeCheckForchangingCast(QualType T, llvm::Value *Base,
+                                       llvm::Value *Derived,
+                                       bool MayBeNull, CFITypeCheckKind TCK,
+                                       SourceLocation Loc);
+
+  llvm::Value *getHashValueFromQualType(QualType &T);
+  void HexEmitObjTraceInst(StringRef , ArrayRef<llvm::Value *> );
+
   /// \brief Emit a slow path cross-DSO CFI check which calls __cfi_slowpath
   /// if Cond if false.
   void EmitCfiSlowPathCheck(SanitizerMask Kind, llvm::Value *Cond,
@@ -3061,6 +3088,10 @@ public:
   /// \brief Emit a call to trap or debugtrap and attach function attribute
   /// "trap-func-name" if specified.
   llvm::CallInst *EmitTrapCall(llvm::Intrinsic::ID IntrID);
+
+  void EmitHexTypeReinterpretCast(QualType T, llvm::Value *Derived,
+                                  bool MayBeNull, CFITypeCheckKind TCK,
+                                  SourceLocation Loc);
 
   /// \brief Emit a cross-DSO CFI failure handling function.
   void EmitCfiCheckFail();

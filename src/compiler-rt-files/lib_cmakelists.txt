@@ -48,4 +48,7 @@ if(COMPILER_RT_BUILD_SANITIZERS)
   if(COMPILER_RT_HAS_CFI)
     add_subdirectory(cfi)
   endif()
+
+  add_subdirectory(hextype)
+
 endif()

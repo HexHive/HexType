@@ -86,3 +86,21 @@ set_target_properties(check-clang PROPERTIES FOLDER "Clang tests")
 add_custom_target(clang-test)
 add_dependencies(clang-test check-clang)
 set_target_properties(clang-test PROPERTIES FOLDER "Clang tests")
+
+#########################################
+# Targetted testing for HEXTYPE clang
+
+set(CLANG_HEXTYPE_TEST_PARAMS
+  clang_site_config=${CMAKE_CURRENT_BINARY_DIR}/lit.site.cfg
+  clang_hextype_test_dir="CodeGen/hextype"
+  )
+
+add_lit_testsuite(check-clang-hextype "Running the HexType regression tests"
+  ${CMAKE_CURRENT_BINARY_DIR}
+  #LIT ${LLVM_LIT}
+  PARAMS ${CLANG_HEXTYPE_TEST_PARAMS}
+  DEPENDS ${CLANG_TEST_DEPS}
+  ARGS ${CLANG_TEST_EXTRA_ARGS}
+  )
+set_target_properties(check-clang PROPERTIES FOLDER "Clang HexType tests")
+

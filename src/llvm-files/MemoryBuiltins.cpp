@@ -87,8 +87,8 @@ static Function *getCalledFunction(const Value *V, bool LookThroughBitCast) {
   if (!CS.getInstruction())
     return nullptr;
 
-  if (CS.isNoBuiltin())
-    return nullptr;
+//if (CS.isNoBuiltin())
+//  return nullptr;
 
   Function *Callee = CS.getCalledFunction();
   if (!Callee || !Callee->isDeclaration())
@@ -228,7 +228,7 @@ static Value *computeArraySize(const CallInst *CI, const DataLayout &DL,
 ///  >1: Unique PointerType cannot be determined, return NULL.
 PointerType *llvm::getMallocType(const CallInst *CI,
                                  const TargetLibraryInfo *TLI) {
-  assert(isMallocLikeFn(CI, TLI) && "getMallocType and not malloc call");
+  //assert(isMallocLikeFn(CI, TLI) && "getMallocType and not malloc call");
 
   PointerType *MallocType = nullptr;
   unsigned NumOfBitCastUses = 0;

@@ -30,6 +30,7 @@
 #include "llvm/IR/GlobalVariable.h"
 #include "llvm/IR/Intrinsics.h"
 #include "llvm/IR/Module.h"
+#include "llvm/Transforms/Utils/HexTypeUtil.h"
 #include <cstdarg>
 
 using namespace clang;
@@ -63,6 +64,7 @@ class ScalarExprEmitter
   CGBuilderTy &Builder;
   bool IgnoreResultAssign;
   llvm::LLVMContext &VMContext;
+  llvm::HexTypeCommonUtil HexTypeCommonUtilSet;
 public:
 
   ScalarExprEmitter(CodeGenFunction &cgf, bool ira=false)
@@ -1407,6 +1409,19 @@ Value *ScalarExprEmitter::VisitCastExpr(CastExpr *CE) {
                                       CE->getLocStart());
     }
 
+    // to handle reinterpret_cast
+    if(ClHandleReinterpretCast &&
+       CGF.SanOpts.has(SanitizerKind::HexType)) {
+      if(isa<CXXReinterpretCastExpr>(CE)) {
+        if (auto PT = DestTy->getAs<PointerType>()) {
+          CGF.EmitHexTypeReinterpretCast(PT->getPointeeType(), Src,
+                                         true,
+                                         CodeGenFunction::CFITCK_DerivedCast,
+                                         CE->getLocStart());
+        }
+      }
+    }
+
     return Builder.CreateBitCast(Src, DstTy);
   }
   case CK_AddressSpaceConversion: {
@@ -1441,6 +1456,33 @@ Value *ScalarExprEmitter::VisitCastExpr(CastExpr *CE) {
                                     /*MayBeNull=*/true,
                                     CodeGenFunction::CFITCK_DerivedCast,
                                     CE->getLocStart());
+
+    // Insert HexType's type casting verification instrumentation.
+    if (CGF.SanOpts.has(SanitizerKind::HexType)) {
+
+      if (llvm::ClCreateCastRelatedTypeList)
+        HexTypeCommonUtilSet.updateCastingReleatedTypeIntoFile(
+          ConvertType(E->getType()));
+
+      llvm::Value *NonVirtualOffset =
+        CGF.CGM.GetNonVirtualBaseClassOffset(DerivedClassDecl,
+                                             CE->path_begin(), CE->path_end());
+      CGF.getTypeRelationInfo(DerivedClassDecl, DerivedClassDecl);
+
+      if (!NonVirtualOffset)
+        CGF.EmitHexTypeCheckForCast(DestTy->getPointeeType(),
+                                    Base.getPointer(),
+                                    /*MayBeNull=*/false,
+                                    CodeGenFunction::CFITCK_DerivedCast,
+                                    CE->getLocStart());
+      else
+        CGF.EmitHexTypeCheckForchangingCast(DestTy->getPointeeType(),
+                                            Base.getPointer(),
+                                            Derived.getPointer(),
+                                            /*MayBeNull=*/false,
+                                            CodeGenFunction::CFITCK_DerivedCast,
+                                            CE->getLocStart());
+    }
 
     return Derived.getPointer();
   }

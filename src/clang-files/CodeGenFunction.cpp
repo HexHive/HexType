@@ -37,6 +37,14 @@
 using namespace clang;
 using namespace CodeGen;
 
+llvm::cl::opt<bool> ClHandleReinterpretCast(
+  "handle-reinterpret-cast", llvm::cl::desc("handle reinterpret cast"),
+  llvm::cl::Hidden, llvm::cl::init(false));
+
+llvm::cl::opt<bool> ClEmitClangTypeInfo(
+  "create-clang-typeinfo", llvm::cl::desc("create clang level type information"),
+  llvm::cl::Hidden, llvm::cl::init(false));
+
 CodeGenFunction::CodeGenFunction(CodeGenModule &cgm, bool suppressNewContext)
     : CodeGenTypeCache(cgm), CGM(cgm), Target(cgm.getTarget()),
       Builder(cgm, cgm.getModule().getContext(), llvm::ConstantFolder(),
@@ -93,6 +101,24 @@ CodeGenFunction::~CodeGenFunction() {
 
   if (getLangOpts().OpenMP) {
     CGM.getOpenMPRuntime().functionFinished(*this);
+  }
+
+  if (ClEmitClangTypeInfo) {
+    char fileName[MAXLEN];
+    char tmp[MAXLEN];
+    strcpy(fileName, "/typeinfo.txt");
+    std::map<uint64_t, HashSet*>::iterator it;
+    for (it = TypeParentInfo.begin(); it != TypeParentInfo.end(); ++it)
+      for (uint64_t parent : *it->second) {
+        sprintf(tmp, "1 %" PRIu64" %" PRIu64"", it->first, parent);
+        HexTypeUtil.writeInfoToFile(tmp, fileName);
+      }
+
+    for (it = TypePhantomInfo.begin(); it != TypePhantomInfo.end(); ++it)
+      for (uint64_t parent : *it->second) {
+        sprintf(tmp, "2 %" PRIu64" %" PRIu64"", it->first, parent);
+        HexTypeUtil.writeInfoToFile(tmp, fileName);
+      }
   }
 }
 

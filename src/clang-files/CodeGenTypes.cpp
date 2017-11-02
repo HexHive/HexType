@@ -49,27 +49,47 @@ void CodeGenTypes::addRecordTypeName(const RecordDecl *RD,
                                      StringRef suffix) {
   SmallString<256> TypeName;
   llvm::raw_svector_ostream OS(TypeName);
-  OS << RD->getKindName() << '.';
-  
+  SmallString<256> TypeNameRtti;
+  llvm::raw_svector_ostream OSR(TypeNameRtti);
+
   // Name the codegen type after the typedef name
   // if there is no tag type name available
   if (RD->getIdentifier()) {
     // FIXME: We should not have to check for a null decl context here.
     // Right now we do it because the implicit Obj-C decls don't have one.
-    if (RD->getDeclContext())
-      RD->printQualifiedName(OS);
-    else
+    if (RD->getDeclContext()) {
+      if (dyn_cast<CXXRecordDecl>(RD)) {
+        TheCXXABI.getMangleContext().mangleCXXRTTI(Context.getTypeDeclType(RD),
+                                                   OSR);
+        if (getContext().getSanitizerBlacklist().isBlacklistedType(OSR.str()))
+          OS << "blacklistedtype" << '.';
+        else
+          OS << "trackedtype" << '.';
+        RD->printQualifiedName(OS);
+        //TheCXXABI.getMangleContext().mangleCXXRTTI(Context.getTypeDeclType(RD),
+        //              OS);
+      }
+      else {
+        OS << RD->getKindName() << '.';
+        RD->printQualifiedName(OS);
+      }
+    }
+    else {
+      OS << RD->getKindName() << '.';
       RD->printName(OS);
+    }
   } else if (const TypedefNameDecl *TDD = RD->getTypedefNameForAnonDecl()) {
+    OS << RD->getKindName() << '.';
     // FIXME: We should not have to check for a null decl context here.
     // Right now we do it because the implicit Obj-C decls don't have one.
     if (TDD->getDeclContext())
       TDD->printQualifiedName(OS);
     else
       TDD->printName(OS);
-  } else
+  } else {
+    OS << RD->getKindName() << '.';
     OS << "anon";
-
+  }
   if (!suffix.empty())
     OS << suffix;
 

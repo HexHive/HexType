@@ -33,9 +33,16 @@
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/Intrinsics.h"
 #include "llvm/IR/Value.h"
+#include "llvm/Transforms/Utils/HexTypeUtil.h"
 
 using namespace clang;
 using namespace CodeGen;
+
+llvm::cl::opt<bool> ClEnhanceDynamicCast(
+  "enhance-dynamic-cast",
+  llvm::cl::desc(
+    "enhance dynamic-cast's typecasting verification function"),
+  llvm::cl::Hidden, llvm::cl::init(false));
 
 namespace {
 class ItaniumCXXABI : public CodeGen::CGCXXABI {
@@ -1228,6 +1235,27 @@ bool ItaniumCXXABI::shouldDynamicCastCallBeNullChecked(bool SrcIsPtr,
   return SrcIsPtr;
 }
 
+static llvm::Constant *getItaniumHexTypeDynamicCastFn(CodeGenFunction &CGF) {
+  llvm::Type *Int8PtrTy = CGF.Int8PtrTy;
+  llvm::Type *Int64Ty = CGF.Int64Ty;
+  llvm::Type *PtrDiffTy =
+    CGF.ConvertType(CGF.getContext().getPointerDiffType());
+
+  llvm::Type *Args[3] = { Int8PtrTy, Int64Ty, PtrDiffTy };
+
+  llvm::FunctionType *FTy =
+    llvm::FunctionType::get(Int8PtrTy, Args, false);
+
+  llvm::AttrBuilder B;
+  B.addAttribute(llvm::Attribute::UWTable);
+
+  return CGF.CGM.CreateRuntimeFunction(FTy,"__dynamic_casting_verification",
+                                       llvm::AttributeSet::get(
+                                         CGF.getLLVMContext(),
+                                         llvm::AttributeSet::FunctionIndex,
+                                         B));
+}
+
 llvm::Value *ItaniumCXXABI::EmitDynamicCastCall(
     CodeGenFunction &CGF, Address ThisAddr, QualType SrcRecordTy,
     QualType DestTy, QualType DestRecordTy, llvm::BasicBlock *CastEnd) {
@@ -1249,23 +1277,61 @@ llvm::Value *ItaniumCXXABI::EmitDynamicCastCall(
 
   // Emit the call to __dynamic_cast.
   llvm::Value *Value = ThisAddr.getPointer();
+  llvm::Value *DcastResult;
   Value = CGF.EmitCastToVoidPtr(Value);
 
   llvm::Value *args[] = {Value, SrcRTTI, DestRTTI, OffsetHint};
-  Value = CGF.EmitNounwindRuntimeCall(getItaniumDynamicCastFn(CGF), args);
-  Value = CGF.Builder.CreateBitCast(Value, DestLTy);
 
-  /// C++ [expr.dynamic.cast]p9:
-  ///   A failed cast to reference type throws std::bad_cast
-  if (DestTy->isReferenceType()) {
-    llvm::BasicBlock *BadCastBlock =
+  if((ClEnhanceDynamicCast) && CGF.SanOpts.has(SanitizerKind::HexType)) {
+    llvm::HexTypeCommonUtil HexTypeUtil;
+    QualType T = DestTy->getPointeeType();
+    auto *ClassTy = T->getAs<RecordType>();
+    if (ClassTy) {
+      const CXXRecordDecl *ClassDecl = cast<CXXRecordDecl>(ClassTy->getDecl());
+      if ((!ClassDecl) || !ClassDecl->isCompleteDefinition() ||
+          !ClassDecl->hasDefinition() || ClassDecl->isAnonymousStructOrUnion()) {
+        return Value;
+      }
+
+      auto &layout = CGM.getTypes().getCGRecordLayout(ClassDecl);
+      std::string DstTyStr = layout.getLLVMType()->getName();
+      uint64_t DstHashValue = HexTypeUtil.getHashValueFromStr(DstTyStr);
+      llvm::Value *DstValue = llvm::ConstantInt::get(CGF.Int64Ty,
+                                                     DstHashValue);
+      llvm::Value *DynamicArgs[] = { Value, DstValue, OffsetHint };
+
+      DcastResult = CGF.EmitNounwindRuntimeCall(
+        getItaniumHexTypeDynamicCastFn(CGF), DynamicArgs);
+      Value = CGF.Builder.CreateBitCast(DcastResult, DestLTy);
+      if (DestTy->isReferenceType()) {
+        llvm::BasicBlock *BadCastBlock =
+          CGF.createBasicBlock("dynamic_cast_hextype.bad_cast");
+
+        Value = CGF.Builder.CreateBitCast(DcastResult, DestLTy);
+
+        llvm::Value *IsNull = CGF.Builder.CreateIsNull(DcastResult);
+        CGF.Builder.CreateCondBr(IsNull, BadCastBlock, CastEnd);
+        CGF.EmitBlock(BadCastBlock);
+        EmitBadCastCall(CGF);
+      }
+    }
+  }
+  else {
+    Value = CGF.EmitNounwindRuntimeCall(getItaniumDynamicCastFn(CGF), args);
+    Value = CGF.Builder.CreateBitCast(Value, DestLTy);
+
+    /// C++ [expr.dynamic.cast]p9:
+    ///   A failed cast to reference type throws std::bad_cast
+    if (DestTy->isReferenceType()) {
+      llvm::BasicBlock *BadCastBlock =
         CGF.createBasicBlock("dynamic_cast.bad_cast");
 
-    llvm::Value *IsNull = CGF.Builder.CreateIsNull(Value);
-    CGF.Builder.CreateCondBr(IsNull, BadCastBlock, CastEnd);
+      llvm::Value *IsNull = CGF.Builder.CreateIsNull(Value);
+      CGF.Builder.CreateCondBr(IsNull, BadCastBlock, CastEnd);
 
-    CGF.EmitBlock(BadCastBlock);
-    EmitBadCastCall(CGF);
+      CGF.EmitBlock(BadCastBlock);
+      EmitBadCastCall(CGF);
+    }
   }
 
   return Value;

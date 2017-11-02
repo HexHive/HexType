@@ -20,9 +20,19 @@
 #include "clang/Frontend/CodeGenOptions.h"
 #include "llvm/IR/CallSite.h"
 #include "llvm/IR/Intrinsics.h"
+#include "llvm/Support/CommandLine.h"
+#include "llvm/Transforms/Utils/HexTypeUtil.h"
+
+#define MAXLEN 10000
 
 using namespace clang;
 using namespace CodeGen;
+
+llvm::cl::opt<bool> ClHandlePlacementNew("handle-placement-new",
+                                         llvm::cl::desc(
+                                           "handle placement new"),
+                                         llvm::cl::Hidden,
+                                         llvm::cl::init(false));
 
 static RequiredArgs
 commonEmitCXXMemberOrOperatorCall(CodeGenFunction &CGF, const CXXMethodDecl *MD,
@@ -1268,6 +1278,89 @@ namespace {
   };
 }
 
+void CodeGenFunction::insertTypeRelationInfo(uint64_t TargetHashValue, uint64_t ParentHashValue,
+                                             std::map<uint64_t, HashSet*> &TargetStorage) {
+  HashSet *TargetSet;
+  bool isExist = true;
+  auto it = TargetStorage.find(TargetHashValue);
+
+  if (it == TargetStorage.end()) {
+    isExist = false;
+    TargetSet = new HashSet();
+  }
+  else
+    TargetSet = it->second;
+
+  TargetSet->insert(ParentHashValue);
+  if (!isExist)
+    TargetStorage.insert(make_pair(TargetHashValue, TargetSet));
+}
+
+void CodeGenFunction::getTypeRelationInfo(const CXXRecordDecl *TargetDecl,
+                                  const CXXRecordDecl *ParentDecl)
+                                  {
+  if ((!TargetDecl) || !TargetDecl->isCompleteDefinition() ||
+      !TargetDecl->hasDefinition() || TargetDecl->isAnonymousStructOrUnion()) {
+    return;
+  }
+
+  std::string TargetStr = TargetDecl->getName();
+  std::string ParentStr = ParentDecl->getName();
+  uint64_t TargetHashValue = HexTypeUtil.getHashValueFromStr(TargetStr);
+  uint64_t ParentHashValue = HexTypeUtil.getHashValueFromStr(ParentStr);
+
+  if (TargetDecl != ParentDecl &&
+      TargetHashValue != 0 && ParentHashValue != 0) {
+    const ASTRecordLayout &TargetLayout =
+      CGM.getContext().getASTRecordLayout(TargetDecl);
+    const ASTRecordLayout &ParentLayout =
+      CGM.getContext().getASTRecordLayout(ParentDecl);
+
+    if (TargetLayout.getDataSize() == ParentLayout.getDataSize()) {
+      insertTypeRelationInfo(TargetHashValue, ParentHashValue, TypePhantomInfo);
+      insertTypeRelationInfo(ParentHashValue, TargetHashValue, TypePhantomInfo);
+    }
+    insertTypeRelationInfo(TargetHashValue, ParentHashValue, TypeParentInfo);
+  }
+
+  CharUnits OffsetCU;
+  for (const auto &Base : ParentDecl->bases()) {
+    QualType FieldType = CGM.getContext().getBaseElementType(Base.getType());
+    const CXXRecordDecl *BaseDecl = FieldType->getAsCXXRecordDecl();
+    if (!BaseDecl)
+      continue;
+    if (BaseDecl && BaseDecl->isCompleteDefinition() &&
+        BaseDecl->hasDefinition() &&
+        !BaseDecl->isAnonymousStructOrUnion()) {
+      std::string dstStr = BaseDecl->getName();
+      getTypeRelationInfo(TargetDecl, BaseDecl);
+      getTypeRelationInfo(ParentDecl, BaseDecl);
+    }
+  }
+}
+
+void CodeGenFunction::getTypeElement(const CXXRecordDecl *ClassDecl,
+                                     llvm::Value *ValueAddr,
+                                     uint64_t offsetInt,
+                                     char *InstName) {
+  llvm::HexTypeCommonUtil HexTypeUtil;
+
+  if ((!ClassDecl) || !ClassDecl->isCompleteDefinition() ||
+      !ClassDecl->hasDefinition() || ClassDecl->isAnonymousStructOrUnion()) {
+    return;
+  }
+
+  std::string DstTyStr = ClassDecl->getName();
+  uint64_t DstHashValue = HexTypeUtil.getHashValueFromStr(DstTyStr);
+  llvm::Value *DstValue = llvm::ConstantInt::get(Int64Ty, DstHashValue);
+  llvm::Value *Offset = llvm::ConstantInt::get(Int64Ty, offsetInt);
+
+  llvm::Value *DynamicArgs[] = {ValueAddr, DstValue, Offset};
+  HexEmitObjTraceInst(InstName, DynamicArgs);
+
+  getTypeRelationInfo(ClassDecl, ClassDecl);
+}
+
 /// Enter a cleanup to call 'operator delete' if the initializer in a
 /// new-expression throws.
 static void EnterNewDeleteCleanup(CodeGenFunction &CGF,
@@ -1476,7 +1569,17 @@ llvm::Value *CodeGenFunction::EmitCXXNewExpr(const CXXNewExpr *E) {
 
     resultPtr = PHI;
   }
-  
+
+  if(ClHandlePlacementNew && E->getNumPlacementArgs() >= 1) {
+    auto *ClassTy = allocType->getAs<RecordType>();
+    if (ClassTy) {
+      char InstName[100] = {"__placement_new_handle"};
+      const CXXRecordDecl *ClassDecl =
+        cast<CXXRecordDecl>(ClassTy->getDecl());
+      getTypeElement(ClassDecl, resultPtr, 0, InstName);
+    }
+  }
+
   return resultPtr;
 }
 

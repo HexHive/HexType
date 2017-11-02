@@ -33,6 +33,7 @@
 #include "llvm/Support/ConvertUTF.h"
 #include "llvm/Support/MathExtras.h"
 #include "llvm/Transforms/Utils/SanitizerStats.h"
+#include "llvm/Transforms/Utils/HexTypeUtil.h"
 
 using namespace clang;
 using namespace CodeGen;
@@ -2446,6 +2447,41 @@ static void emitCheckHandlerCall(CodeGenFunction &CGF,
   }
 }
 
+void CodeGenFunction::HexEmitCheck(StringRef FunName,
+                                   ArrayRef<llvm::Value *> DynamicArgs,
+                                   llvm::Value *DstTyHashValue) {
+  bool blacklisted =
+    CGM.getContext().getSanitizerBlacklist().isBlacklistedFunction(
+      CurFn->getName()) ? 1 : 0;
+  if (blacklisted) return;
+
+  SmallVector<llvm::Value *, 4> Args;
+  SmallVector<llvm::Type *, 4> ArgTypes;
+  Args.reserve(DynamicArgs.size() + 1);
+  ArgTypes.reserve(DynamicArgs.size() + 1);
+
+  for (size_t i = 0, n = DynamicArgs.size(); i != n; ++i) {
+    Args.push_back(EmitCheckValue(DynamicArgs[i]));
+    ArgTypes.push_back(IntPtrTy);
+  }
+  Args.push_back(DstTyHashValue);
+  ArgTypes.push_back(Builder.getInt64Ty());
+
+  llvm::FunctionType *FnType =
+    llvm::FunctionType::get(CGM.VoidTy, ArgTypes, false);
+
+  llvm::AttrBuilder B;
+  B.addAttribute(llvm::Attribute::UWTable);
+
+  llvm::Value *Fn = CGM.CreateRuntimeFunction(
+    FnType, FunName,
+    llvm::AttributeSet::get(getLLVMContext(),
+                            llvm::AttributeSet::FunctionIndex, B));
+
+  EmitNounwindRuntimeCall(Fn, Args);
+}
+
+
 void CodeGenFunction::EmitCheck(
     ArrayRef<std::pair<llvm::Value *, SanitizerMask>> Checked,
     StringRef CheckName, ArrayRef<llvm::Constant *> StaticArgs,
@@ -2553,6 +2589,33 @@ void CodeGenFunction::EmitCheck(
   }
 
   EmitBlock(Cont);
+}
+
+void CodeGenFunction::HexEmitObjTraceInst(
+  StringRef InstName, ArrayRef<llvm::Value *> DynamicArgs) {
+  SmallVector<llvm::Value *, 4> Args;
+  SmallVector<llvm::Type *, 4> ArgTypes;
+  Args.reserve(DynamicArgs.size() + 1);
+  ArgTypes.reserve(DynamicArgs.size() + 1);
+
+  for (size_t i = 0, n = DynamicArgs.size(); i != n; ++i) {
+    Args.push_back(EmitCheckValue(DynamicArgs[i]));
+    ArgTypes.push_back(IntPtrTy);
+  }
+
+  llvm::AttrBuilder B;
+  B.addAttribute(llvm::Attribute::UWTable);
+
+  llvm::FunctionType *FnType =
+    llvm::FunctionType::get(CGM.VoidTy, ArgTypes, false);
+
+  llvm::Value *Fn = CGM.CreateRuntimeFunction(
+    FnType, InstName,
+    llvm::AttributeSet::get(getLLVMContext(),
+                            llvm::AttributeSet::FunctionIndex, B));
+  if(Fn != NULL && FnType != NULL) {
+    EmitNounwindRuntimeCall(Fn, Args);
+  }
 }
 
 void CodeGenFunction::EmitCfiSlowPathCheck(
@@ -3617,6 +3680,32 @@ LValue CodeGenFunction::EmitCastLValue(const CastExpr *E) {
     if (sanitizePerformTypeCheck())
       EmitTypeCheck(TCK_DowncastReference, E->getExprLoc(),
                     Derived.getPointer(), E->getType());
+
+    llvm::HexTypeCommonUtil HexTypeCommonUtilSet;
+
+    // Insert HexType's type casting verification instrumentation.
+    if (SanOpts.has(SanitizerKind::HexType)) {
+      if (llvm::ClCreateCastRelatedTypeList)
+        HexTypeCommonUtilSet.updateCastingReleatedTypeIntoFile(
+          ConvertType(E->getType()));
+
+      llvm::Value *NonVirtualOffset =
+        CGM.GetNonVirtualBaseClassOffset(DerivedClassDecl,
+                                         E->path_begin(), E->path_end());
+      if (!NonVirtualOffset)
+        EmitHexTypeCheckForCast(E->getType(),
+                                LV.getAddress().getPointer(),
+                                /*MayBeNull=*/false,
+                                CFITCK_DerivedCast,
+                                E->getLocStart());
+      else
+        EmitHexTypeCheckForchangingCast(E->getType(),
+                                        LV.getAddress().getPointer(),
+                                        Derived.getPointer(),
+                                        /*MayBeNull=*/false,
+                                        CFITCK_DerivedCast,
+                                        E->getLocStart());
+    }
 
     if (SanOpts.has(SanitizerKind::CFIDerivedCast))
       EmitVTablePtrCheckForCast(E->getType(), Derived.getPointer(),

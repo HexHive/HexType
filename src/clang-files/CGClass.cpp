@@ -27,6 +27,7 @@
 #include "llvm/IR/Intrinsics.h"
 #include "llvm/IR/Metadata.h"
 #include "llvm/Transforms/Utils/SanitizerStats.h"
+#include "llvm/Transforms/Utils/HexTypeUtil.h"
 
 using namespace clang;
 using namespace CodeGen;
@@ -2516,6 +2517,50 @@ void CodeGenFunction::EmitVTablePtrCheckForCall(const CXXRecordDecl *RD,
   EmitVTablePtrCheck(RD, VTable, TCK, Loc);
 }
 
+llvm::Value *CodeGenFunction::getHashValueFromQualType(QualType &T) {
+
+  llvm::HexTypeCommonUtil HexTypeUtil;
+
+  if (const RecordType *ClassTy = T->getAs<RecordType>()) {
+    const CXXRecordDecl *ClassDecl = cast<CXXRecordDecl>(ClassTy->getDecl());
+    if ((!ClassDecl) || !ClassDecl->isCompleteDefinition() ||
+        !ClassDecl->hasDefinition() || ClassDecl->isAnonymousStructOrUnion()) {
+      return nullptr;
+    }
+
+    std::string DstTyStr =
+      getTypes().getCGRecordLayout(ClassDecl).getLLVMType()->getName();
+    uint64_t DstHashValue = HexTypeUtil.getHashValueFromStr(DstTyStr);
+    return llvm::ConstantInt::get(Int64Ty, DstHashValue);
+  }
+
+  return nullptr;
+}
+
+void CodeGenFunction::EmitHexTypeCheckForchangingCast(QualType T,
+                                                      llvm::Value *Base,
+                                                      llvm::Value *Derived,
+                                                      bool MayBeNull,
+                                                      CFITypeCheckKind TCK,
+                                                      SourceLocation Loc) {
+  if (llvm::Value *DstTyHashValue = getHashValueFromQualType(T)) {
+    llvm::Value *DynamicArgs[] = { Base, Derived };
+    HexEmitCheck("__type_casting_verification_changing", DynamicArgs,
+                 DstTyHashValue);
+  }
+}
+
+void CodeGenFunction::EmitHexTypeCheckForCast(QualType T,
+                                              llvm::Value *Derived,
+                                              bool MayBeNull,
+                                              CFITypeCheckKind TCK,
+                                              SourceLocation Loc) {
+  if (llvm::Value *DstTyHashValue = getHashValueFromQualType(T)) {
+    llvm::Value *DynamicArgs[] = { Derived };
+    HexEmitCheck("__type_casting_verification", DynamicArgs, DstTyHashValue);
+  }
+}
+
 void CodeGenFunction::EmitVTablePtrCheckForCast(QualType T,
                                                 llvm::Value *Derived,
                                                 bool MayBeNull,
@@ -2640,6 +2685,23 @@ void CodeGenFunction::EmitVTablePtrCheck(const CXXRecordDecl *RD,
                          {CastedVTable, AllVtables});
   EmitCheck(std::make_pair(BitSetTest, M), "cfi_check_fail", StaticData,
             {CastedVTable, ValidVtable});
+}
+
+// insert instrumentation to handle reinterpret_cast
+void CodeGenFunction::EmitHexTypeReinterpretCast(QualType T,
+                                                 llvm::Value *Derived,
+                                                 bool MayBeNull,
+                                                 CFITypeCheckKind TCK,
+                                                 SourceLocation Loc) {
+  if (!getLangOpts().CPlusPlus)
+    return;
+
+  char InstName[100] = {"__reinterpret_casting_handle"};
+  if (auto *ClassTy = T->getAs<RecordType>()) {
+    const CXXRecordDecl *ClassDecl =
+      cast<CXXRecordDecl>(ClassTy->getDecl());
+    getTypeElement(ClassDecl, Derived, 0, InstName);
+  }
 }
 
 // FIXME: Ideally Expr::IgnoreParenNoopCasts should do this, but it doesn't do

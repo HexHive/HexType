@@ -32,6 +32,22 @@ static void delete_case4(rbtree t, node n);
 static void delete_case5(rbtree t, node n);
 static void delete_case6(rbtree t, node n);
 
+void write_log(char *result, char *filename) {
+  if (getenv("HEXTYPE_LOG_PATH") != nullptr) {
+    char *home = getenv("HEXTYPE_LOG_PATH");
+    char path[MAXPATH];
+    strcpy(path, home);
+    strcat(path, filename);
+
+    FILE *op = fopen(path, "a");
+    if(op != NULL) {
+      fprintf(op, "%s\n", result);
+      fflush(op);
+      fclose(op);
+    }
+  }
+}
+
 node grandparent(node n) {
   assert (n != NULL);
   assert (n->parent != NULL); /* Not the root node */
