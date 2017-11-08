@@ -20,6 +20,7 @@ $ $BUILD_DIR/bin/export HEXTYPE_LOG_PATH="/tmp/hextype"
 ```
 
 b. Run HexType
+- Use the `create-clang-typeinfo` option or copy the pre-made type info (in the `HexType/etc/clang_type_info`) into the HexType path
 ```
 $ $BUILD_DIR/bin/clang++ test.cc -fsanitize=hextype
 ```
@@ -41,7 +42,7 @@ handle-placement-new : handle placement_new to increase coverage
 ```
 
 - Optimization
-
+  - If you use the `cast-obj-opt` option, create a type casting related object list using `create-cast-related-type-list` option or copy the pre-made list (in the `HexType/etc/typecasting_releated_type_rule`) into the HexType path
 ```
 stack-opt : apply stack optimization
 safestack-opt : apply stack optimization using safestack
