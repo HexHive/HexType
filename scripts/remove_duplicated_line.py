@@ -17,4 +17,3 @@ with open(filepath, 'r') as f:
         if line not in allocation:
             allocation.append(line)
             print line
-

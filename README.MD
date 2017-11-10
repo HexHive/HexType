@@ -20,7 +20,8 @@ $ $BUILD_DIR/bin/export HEXTYPE_LOG_PATH="/tmp/hextype"
 ```
 
 b. Run HexType
-- Use the `create-clang-typeinfo` option or copy the pre-made type info (in the `HexType/etc/clang_type_info`) into the HexType path
+- Use the `create-clang-typeinfo` option or copy the pre-made type info (in the `HexType/etc/clang_type_info`) into the HexType path as `typeinfo.txt` file name
+- Use `HexType/scripts/remove_duplicated_line.py` in order to remove duplicated lines when you create new type information file
 ```
 $ $BUILD_DIR/bin/clang++ test.cc -fsanitize=hextype
 ```
@@ -42,7 +43,8 @@ handle-placement-new : handle placement_new to increase coverage
 ```
 
 - Optimization
-  - If you use the `cast-obj-opt` option, create a type casting related object list using `create-cast-related-type-list` option or copy the pre-made list (in the `HexType/etc/typecasting_releated_type_rule`) into the HexType path
+  - If you use the `cast-obj-opt` option, create a type casting related object list using `create-cast-related-type-list` option or copy the pre-made list (in the `HexType/etc/typecasting_releated_type_rule`) into the HexType path as `casting_obj.txt` file name
+  - Use `HexType/scripts/merge_typecasting_related_type.py` in order to merge type information when you create new type casting related set
 ```
 stack-opt : apply stack optimization
 safestack-opt : apply stack optimization using safestack
