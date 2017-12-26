@@ -40,7 +40,7 @@ void printTypeConfusion(int ErrorType, uint64_t SrcHash, uint64_t DstHash) {
   char tmp[MAXLEN];
   char fileName[MAXLEN] = "/typeconfusion.txt";
 
-  snprintf(tmp, sizeof(tmp), "\n== HexType Type Confuision Report ==");
+  snprintf(tmp, sizeof(tmp), "\n== HexType Type Confusion Report ==");
   printInfotoFile(tmp, fileName);
 
   snprintf(tmp, sizeof(tmp), "%d %" PRIu64 " %" PRIu64 "",
@@ -109,7 +109,7 @@ static void PrintStatResult(void) {
   snprintf(tmp, sizeof(tmp), "== Casting verification status ==\n");
   printInfotoFile(tmp, fileName);
 
-  snprintf(tmp, sizeof(tmp), "%lu (verified %lu): Casting operation\n", 
+  snprintf(tmp, sizeof(tmp), "%lu (verified %lu): Casting operation\n",
            getVal(numCasting), getVal(numVerifiedCasting));
   printInfotoFile(tmp, fileName);
 
