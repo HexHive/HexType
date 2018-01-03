@@ -6,6 +6,14 @@
 ./scripts/install-hextype-files.sh
 
 # build HexType
-corecount="`grep '^processor' /proc/cpuinfo|wc -l`"
+case "$(uname -s)" in
+  Darwin)
+  corecount="$(sysctl -n hw.ncpu)"
+  ;;
+  *)
+  corecount="$(`grep '^processor' /proc/cpuinfo|wc -l`)"
+  ;;
+esac
+
 ${JOBS="$corecount"}
 make -j"$JOBS"
