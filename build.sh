@@ -15,5 +15,4 @@ case "$(uname -s)" in
   ;;
 esac
 
-${JOBS="$corecount"}
-make -j"$JOBS"
+make -j"$corecount"
