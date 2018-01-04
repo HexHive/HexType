@@ -354,7 +354,8 @@ namespace llvm {
                AllTypeInfo[t].DetailInfo.TypeHashValue)) {
             AllTypeInfo[i].DirectParents[j].TypeIndex = t;
 
-            if (AllTypeInfo[i].ElementSize == 1) {
+            if (DL.getTypeAllocSize(AllTypeInfo[i].StructTy) ==
+                DL.getTypeAllocSize(AllTypeInfo[t].StructTy)) {
               AllTypeInfo[i].DirectPhantomTypes.push_back(
                 AllTypeInfo[t].DetailInfo);
               AllTypeInfo[t].DirectPhantomTypes.push_back(
