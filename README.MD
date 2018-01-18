@@ -25,6 +25,7 @@ b. Run HexType
 ```
 $ $BUILD_DIR/bin/clang++ test.cc -fsanitize=hextype
 ```
+- Note that during various application tests, we found in a few cases that some type information was omitted during the transition from source code to LLVM IR (which can cause false positive issue). In order to solve this issue, HexType also relies on clang level type information using `-mllvm -create-clang-typeinfo` option.
 
 c. Please enable/disable below `#define` in the `lib/hextype/rbtree.h` according to your purpose  
 ```
