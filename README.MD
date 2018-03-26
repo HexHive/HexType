@@ -32,6 +32,7 @@ c. Please enable/disable below `#define` in the `lib/hextype/rbtree.h` according
 HEX_LOG: print numerical statistics
 PRINT_BAD_CASTING: print type confusion result
 PRINT_BAD_CASTING_FILE: print type confusio result into file
+PRINT_BAD_CASTING_FATAL : terminate program when HexType detects type confusion
 ```
 
 d. Please use below additional options as compile option (with `-mllvm` option, e.g., `-mllvm -statck-opt`) according to your purpose

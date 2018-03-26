@@ -7,6 +7,14 @@
 #define HEX_LOG
 #define PRINT_BAD_CASTING
 #define PRINT_BAD_CASTING_FILE
+//#define PRINT_BAD_CASTING_FATAL
+//#define DO_REPORT_BADCAST_FATAL_NOCOREDUMP
+
+#ifdef DO_REPORT_BADCAST_FATAL_NOCOREDUMP
+#define TERMINATE exit(-1);
+#else
+#define TERMINATE abort();
+#endif
 
 enum rbtree_node_color { RED, BLACK };
 

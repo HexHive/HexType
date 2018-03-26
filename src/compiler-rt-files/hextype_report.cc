@@ -56,6 +56,10 @@ void printTypeConfusion(int ErrorType, uint64_t SrcHash, uint64_t DstHash) {
     }
   free(strings);
 #endif
+
+#ifdef PRINT_BAD_CASTING_FATAL
+  TERMINATE
+#endif
 }
 
 static void PrintStatResult(void) {
